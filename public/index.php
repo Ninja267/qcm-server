@@ -11,6 +11,9 @@ $allowed = [
     'register', 'register_success', 'register_error',
     'prof/dashboard', 
     'prof/qcm_new', 
+    'prof/qcm_list',
+    'prof/qcm_delete',
+    'prof/qcm_toggle',
     'prof/qcm_results', 
     'prof/question_new', // création 
     'prof/question_list',     // tableau

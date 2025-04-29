@@ -17,12 +17,18 @@ $mode = 'new';
 $id   = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $src  = null;
 
+// récupérer une question par son id
 if ($id > 0) {
+  // y a-t-il une question avec cet id ?
   $st  = $pdo->prepare('SELECT * FROM questions WHERE id = :i');
+  // si oui, la récupérer en exécutant la requête
   $st->execute(['i' => $id]);
+  // si oui, la stocker 
   $src = $st->fetch();
 
+  // si oui, déterminer le mode
   if ($src) {
+    // mode : edit ou dup
     $mode = (($_GET['action'] ?? '') === 'dup') ? 'dup' : 'edit';
 
     /* pré-remplir lors du 1er affichage */
@@ -37,16 +43,21 @@ if ($id > 0) {
 
 /* ---- validation / enregistrement ---- */
 $error = '';
+// si le formulaire a été soumis
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
+  // récupérer les données du formulaire
   $theme_id = (int)($_POST['theme_id'] ?? 0);
   $sub_id   = (int)($_POST['subtheme_id'] ?? 0);
   $texte    = trim($_POST['texte_question'] ?? '');
   $jsonStr  = $_POST['reponses_json'] ?? '[]';
   $reps     = json_decode($jsonStr, true);
 
+  // vérifier les réponses
   $good = array_reduce($reps ?: [], fn($c, $r) => $c + (!empty($r['correct']) ? 1 : 0), 0);
 
+  // valider les données
+  // thème, énoncé, au moins 2 choix et au moins 1 bonne réponse
   if (!$theme_id || $texte === '' || !is_array($reps) || count($reps) < 2 || $good === 0) {
     $error = '❌ Veuillez choisir un thème, écrire l’énoncé, proposer au moins 2 choix et cocher une bonne réponse.';
   } else {

@@ -2,7 +2,7 @@
 
 /*******************************************************
  *  public/prof/qcm_new.php
- *  Création d’un QCM (métadonnées + choix questions)
+ *  Création / édition / duplication d’un QCM
  ******************************************************/
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once __DIR__ . '/../../config/db.php';
@@ -11,23 +11,62 @@ if (!isset($_SESSION['user_id']) || $_SESSION['statut'] !== 'prof') {
     exit;
 }
 
-/* ----------  Enregistrement ---------- */
+/* -------- Déterminer le mode -------- */
+$mode = 'new';
+$id   = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+if ($id) {
+    $stmt = $pdo->prepare('SELECT * FROM qcms WHERE id = :i');
+    $stmt->execute(['i' => $id]);
+    if ($src = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $mode = (($_GET['action'] ?? '') === 'dup') ? 'dup' : 'edit';
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {         // pré-remplir
+            $_POST['titre'] = $src['titre'];
+            $_POST['date']  = $src['date_examen'];
+            $_POST['duree'] = $src['duree_min'];
+
+            $ids = $pdo->prepare(
+                'SELECT question_id FROM qcm_questions
+                 WHERE qcm_id = :q ORDER BY ordre'
+            );
+            $ids->execute(['q' => $id]);
+            $_POST['ids'] = array_column($ids->fetchAll(), 'question_id');
+        }
+    } else $mode = 'new';           // id invalide
+}
+
+/* -------- Enregistrer -------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $titre = trim($_POST['titre'] ?? '');
     $date  = $_POST['date'] ?? '';
     $duree = (int)($_POST['duree'] ?? 0);
     $ids   = json_decode($_POST['ids'] ?? '[]', true);
 
-    if ($titre === '' || !$date || $duree <= 0 || !is_array($ids) || count($ids) === 0) {
-        $err = 'Nom, date, durée et au moins 1 question sont obligatoires.';
+    if ($titre === '' || !$date || $duree <= 0 || !is_array($ids) || !count($ids)) {
+        $err = 'Nom, date, durée et au moins 1 question sont requis.';
     } else {
-        $pdo->prepare(
-            'INSERT INTO qcms(titre,date_examen,duree_min,auteur_id)
-           VALUES(:t,:d,:m,:a)'
-        )
-            ->execute(['t' => $titre, 'd' => $date, 'm' => $duree, 'a' => $_SESSION['user_id']]);
-        $qcmId = $pdo->lastInsertId();
+        if ($mode === 'edit') {
+            $pdo->prepare(
+                'UPDATE qcms SET titre=:t,date_examen=:d,duree_min=:m WHERE id=:i'
+            )
+                ->execute(['t' => $titre, 'd' => $date, 'm' => $duree, 'i' => $id]);
 
+            $pdo->prepare('DELETE FROM qcm_questions WHERE qcm_id=:i')
+                ->execute(['i' => $id]);
+            $qcmId = $id;
+        } else {                    // new ou dup
+            $pdo->prepare(
+                'INSERT INTO qcms(titre,date_examen,duree_min,auteur_id)
+               VALUES(:t,:d,:m,:a)'
+            )
+                ->execute([
+                    't' => $titre,
+                    'd' => $date,
+                    'm' => $duree,
+                    'a' => $_SESSION['user_id']
+                ]);
+            $qcmId = $pdo->lastInsertId();
+        }
+        /* ré-insérer les questions */
         $ins = $pdo->prepare(
             'INSERT INTO qcm_questions(qcm_id,question_id,ordre)
            VALUES(:q,:id,:o)'
@@ -40,10 +79,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-/* ----------  Données pour le filtre ---------- */
+/* -------- Données pour filtres -------- */
 $themes = $pdo->query('SELECT id, nom FROM themes ORDER BY nom')->fetchAll();
 
-/* ----------  Toutes les questions ---------- */
+/* -------- Toutes les questions -------- */
 $qs = $pdo->query(
     'SELECT q.id, q.texte_question, q.reponses,
          q.theme_id, q.subtheme_id,
@@ -59,7 +98,8 @@ $qs = $pdo->query(
 
 <head>
     <meta charset="UTF-8">
-    <title>Nouveau QCM</title>
+    <meta charset="UTF-8">
+    <title><?= $mode === 'edit' ? 'Modifier' : 'Nouveau' ?> QCM</title>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
     <style>
         body {
@@ -97,41 +137,36 @@ $qs = $pdo->query(
 </head>
 
 <body>
-    <h1>Créer un QCM</h1>
+    <h1><?= $mode === 'edit' ? 'Modifier le QCM' : ($mode === 'dup' ? 'Dupliquer le QCM' : 'Créer un QCM') ?></h1>
 
-    <?php if (!empty($err)): ?>
-        <p style="color:red"><?= htmlspecialchars($err) ?></p>
-    <?php endif; ?>
+    <?php if (!empty($err)): ?><p style="color:red"><?= htmlspecialchars($err) ?></p><?php endif; ?>
 
     <form method="post" onsubmit="return beforeSave();">
-        <!-- ######################## Méta ######################## -->
+        <!-- =========== Méta =========== -->
         <fieldset class="panel">
             <legend>Méta-données</legend>
             <label>Nom du QCM
                 <input name="titre" value="<?= htmlspecialchars($_POST['titre'] ?? '') ?>" required>
             </label><br><br>
-
             <label>Date de l’examen
                 <input type="date" name="date" value="<?= htmlspecialchars($_POST['date'] ?? '') ?>" required>
             </label><br><br>
-
             <label>Durée (minutes)
                 <input type="number" name="duree" min="1" value="<?= htmlspecialchars($_POST['duree'] ?? '') ?>" required>
             </label>
         </fieldset>
 
         <div style="display:flex;gap:16px">
-            <!-- ######################## Feuille ######################## -->
+            <!-- ====== Feuille d’examen ====== -->
             <div style="flex:1" class="panel">
                 <h3>Feuille d’examen <small>(drag-and-drop)</small></h3>
                 <div id="selected"></div>
             </div>
 
-            <!-- ######################## Liste questions ######################## -->
+            <!-- ====== Liste questions ====== -->
             <div style="flex:2" class="panel">
                 <h3>Questions disponibles</h3>
-
-                <label>Thème&nbsp;:
+                <label>Thème :
                     <select id="f_theme" onchange="loadSubFilter();applyFilter();">
                         <option value="">-- Tous --</option>
                         <?php foreach ($themes as $t): ?>
@@ -139,22 +174,19 @@ $qs = $pdo->query(
                         <?php endforeach ?>
                     </select>
                 </label>
-
-                <label>Sous-thème&nbsp;:
+                <label>Sous-thème :
                     <select id="f_sub" onchange="applyFilter()">
                         <option value="">-- Tous --</option>
                     </select>
                 </label>
-
                 <input id="search" placeholder="Recherche…" oninput="applyFilter()">
 
                 <div id="qtable">
                     <?php
                     foreach ($qs as $q) {
-                        /* ---- préparer l’aperçu des réponses ---- */
-                        $choices = json_decode($q['reponses'], true) ?: [];
+                        $ch = json_decode($q['reponses'], true) ?: [];
                         $repr = $good = [];
-                        foreach ($choices as $c) {
+                        foreach ($ch as $c) {
                             $repr[] = $c['label'] . ') ' . htmlspecialchars($c['texte']);
                             if (!empty($c['correct'])) $good[] = $c['label'];
                         }
@@ -162,50 +194,48 @@ $qs = $pdo->query(
                         $goodStr    = implode(', ', $good);
 
                         echo '<div class="qrow"
-            data-id="' . $q['id'] . '"
-            data-theme-id="' . $q['theme_id'] . '"
-            data-sub-id="' . $q['subtheme_id'] . '"
-            data-theme="' . htmlspecialchars($q['theme']) . '"
-            data-sub="' . htmlspecialchars($q['sub'] ?? '') . '"
-            data-choices="' . htmlspecialchars($choicesStr) . '"
-            data-good="' . htmlspecialchars($goodStr) . '">
-            <span class="qtxt">' . htmlspecialchars(mb_strimwidth($q['texte_question'], 0, 60, '…')) . '</span>
-            <small>(' . htmlspecialchars($q['theme']) . ' › ' . ($q['sub'] ?: '-') . ')</small><br>
-            <small>' . $choicesStr . ' — <strong>' . $goodStr . '</strong></small>
-            <button type="button" onclick="addQ(' . $q['id'] . ',this)">➕</button>
-          </div>';
+          data-id="' . $q['id'] . '"
+          data-theme-id="' . $q['theme_id'] . '"
+          data-sub-id="' . $q['subtheme_id'] . '"
+          data-theme="' . htmlspecialchars($q['theme']) . '"
+          data-sub="' . htmlspecialchars($q['sub'] ?? '') . '"
+          data-choices="' . htmlspecialchars($choicesStr) . '"
+          data-good="' . htmlspecialchars($goodStr) . '">
+          <span class="qtxt">' . htmlspecialchars(mb_strimwidth($q['texte_question'], 0, 60, '…')) . '</span>
+          <small>(' . htmlspecialchars($q['theme']) . ' › ' . ($q['sub'] ?: '-') . ')</small><br>
+          <small>' . $choicesStr . ' — <strong>' . $goodStr . '</strong></small>
+          <button type="button" onclick="addQ(' . $q['id'] . ',this)">➕</button>
+        </div>';
                     }
                     ?>
                 </div><!-- qtable -->
-            </div><!-- panel liste -->
+            </div><!-- liste -->
         </div><!-- flex -->
 
         <input type="hidden" name="ids" id="ids">
-        <br><button type="submit">Enregistrer le QCM</button>
+        <br><button type="submit"><?= $mode === 'edit' ? 'Mettre à jour' : 'Enregistrer le QCM' ?></button>
     </form>
 
     <script>
-        /* ---------- Sous-thème filtrable ---------- */
+        /* --- Sous-thème filtrable --- */
         function loadSubFilter() {
-            const themeId = document.getElementById('f_theme').value;
+            const tid = document.getElementById('f_theme').value;
             const sel = document.getElementById('f_sub');
-            sel.innerHTML = '<option value=\"\">-- Tous --</option>';
-            if (!themeId) {
+            sel.innerHTML = '<option value="">-- Tous --</option>';
+            if (!tid) {
                 applyFilter();
                 return;
             }
-            fetch('prof/ajax_get_subthemes.php?theme_id=' + themeId)
+            fetch('prof/ajax_get_subthemes.php?theme_id=' + tid)
                 .then(r => r.json())
                 .then(list => {
-                    list.forEach(s => {
-                        sel.insertAdjacentHTML('beforeend',
-                            `<option value=\"${s.id}\">${s.nom}</option>`);
-                    });
+                    list.forEach(s => sel.insertAdjacentHTML('beforeend',
+                        `<option value="${s.id}">${s.nom}</option>`));
                     applyFilter();
                 });
         }
 
-        /* ---------- Ajouter / retirer ---------- */
+        /* --- Ajouter / retirer --- */
         function addQ(id, btn) {
             const row = btn.parentNode;
             const theme = row.dataset.theme;
@@ -217,27 +247,22 @@ $qs = $pdo->query(
             document.getElementById('selected').insertAdjacentHTML('beforeend',
                 `<div class="qrow" data-id="${id}">
       <span class="drag">⇅</span>
-      <span>${txt}
-        <small>(${theme} › ${sub}) • ${choices} — <strong>${good}</strong></small>
-      </span>
+      <span>${txt}<small> (${theme} › ${sub}) • ${choices} — <strong>${good}</strong></small></span>
       <button type="button" onclick="removeQ(${id})">×</button>
     </div>`);
-            row.dataset.picked = "yes";
+            row.dataset.picked = 'yes';
             row.style.display = 'none';
             refreshSortable();
         }
 
         function removeQ(id) {
-            /* retirer de la feuille */
-            const sel = document.getElementById('selected');
-            sel.querySelector('[data-id="' + id + '"]').remove();
-            /* ré-afficher dans la liste */
-            document.querySelector('#qtable .qrow[data-id="' + id + '"]').style.display = '';
-            /* retirer le marqueur */
-            delete document.querySelector('#qtable .qrow[data-id="' + id + '"]').dataset.picked;
+            document.querySelector('#selected .qrow[data-id="' + id + '"]').remove();
+            const src = document.querySelector('#qtable .qrow[data-id="' + id + '"]');
+            src.style.display = '';
+            delete src.dataset.picked;
         }
 
-        /* ---------- Drag ---------- */
+        /* --- Drag --- */
         let sortable;
 
         function refreshSortable() {
@@ -249,28 +274,36 @@ $qs = $pdo->query(
         }
         refreshSortable();
 
-        /* ---------- Filtre ---------- */
+        /* --- Filtre --- */
         function applyFilter() {
             const th = document.getElementById('f_theme').value;
             const su = document.getElementById('f_sub').value;
             const kw = document.getElementById('search').value.toLowerCase();
 
             document.querySelectorAll('#qtable .qrow').forEach(r => {
-                if (r.dataset.picked === 'yes') return; // ligne déjà choisie
-
+                if (r.dataset.picked === 'yes') return;
                 const txt = r.querySelector('.qtxt').textContent.toLowerCase();
                 const ok = (!th || r.dataset.themeId === th) &&
                     (!su || r.dataset.subId === su) &&
                     (!kw || txt.includes(kw));
-
                 r.style.display = ok ? '' : 'none';
             });
         }
 
-        /* ---------- Avant submit ---------- */
+        /* --- Pré-chargement (edit / dup) --- */
+        const preIds = <?= json_encode($_POST['ids'] ?? []) ?>; // tableau
+        if (Array.isArray(preIds) && preIds.length) {
+            preIds.forEach(id => {
+                const btn = document.querySelector('#qtable .qrow[data-id="' + id + '"] button');
+                if (btn) addQ(id, btn);
+            });
+        }
+
+        /* --- Avant submit --- */
         function beforeSave() {
             const ids = [];
-            document.querySelectorAll('#selected .qrow').forEach(r => ids.push(r.dataset.id));
+            document.querySelectorAll('#selected .qrow')
+                .forEach(r => ids.push(parseInt(r.dataset.id)));
             if (ids.length === 0) {
                 alert('Ajoutez au moins une question');
                 return false;

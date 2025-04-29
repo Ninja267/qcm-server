@@ -12,5 +12,6 @@ if (!isset($_SESSION['user_id']) || $_SESSION['statut'] !== 'prof') {
     <li><a href="index.php?page=prof/question_list">Liste des questions</a></li>
     <li><a href="index.php?page=prof/theme_list">Liste des thèmes</a></li>
     <li><a href="index.php?page=prof/qcm_new">Créer un QCM</a></li>
+    <li><a href="index.php?page=prof/qcm_list">Liste des QCM</a></li>
     <li><a href="index.php?page=prof/qcm_results">Résultats QCM</a></li>
 </ul>
