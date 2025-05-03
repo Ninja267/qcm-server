@@ -6,6 +6,8 @@
  *  avec actions Modifier / Dupliquer / Supprimer.
  *  Filtrage facultatif par thème ou sous‑thème.
  ******************************************************/
+$msg = $_GET['msg'] ?? '';
+$err = $_GET['err'] ?? '';
 require_once __DIR__ . '/../../config/db.php';
 if (!isset($_SESSION['user_id']) || $_SESSION['statut'] !== 'prof') {
     header('Location:index.php?page=login');
@@ -33,6 +35,7 @@ $sql = 'SELECT q.id, q.texte_question, q.reponses,
           LEFT JOIN themes     t ON t.id = q.theme_id
           LEFT JOIN subthemes  s ON s.id = q.subtheme_id
          WHERE 1 ';
+$sql .= ' AND q.auteur_id = :p ';
 $params = [];
 if ($themeFilter) {
     $sql .= ' AND q.theme_id = :tf ';
@@ -45,6 +48,7 @@ if ($subFilter) {
 $sql .= 'ORDER BY q.id DESC';
 
 $stmt = $pdo->prepare($sql);
+$params['p'] = $_SESSION['user_id'];
 $stmt->execute($params);
 $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
@@ -70,7 +74,13 @@ $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
 </head>
 
 <body>
-
+    <?php if ($msg === 'del_ok'): ?>
+        <p style="color:green">Question supprimée.</p>
+    <?php elseif ($err === 'used'): ?>
+        <p style="color:red">Impossible : cette question est encore utilisée dans au moins un QCM.</p>
+    <?php elseif ($err === 'not_found'): ?>
+        <p style="color:red">Question introuvable ou non autorisée.</p>
+    <?php endif; ?>
     <h1>Questions</h1>
 
     <!-- Filtres -->
@@ -134,8 +144,9 @@ $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <td>
                         <a href="index.php?page=prof/question_new&id=<?= $q['id'] ?>">Modif.</a> |
                         <a href="index.php?page=prof/question_new&action=dup&id=<?= $q['id'] ?>">Dup.</a> |
-                        <a href="index.php?page=prof/question_delete&id=<?= $q['id'] ?>"
-                            onclick="return confirm('Supprimer définitivement ?')">Suppr.</a>
+                        <a href="index.php?page=prof/question_delete&id=<?= $q['id'] ?>">
+                            Suppr.
+                        </a>
                     </td>
                 </tr>
             <?php endforeach ?>

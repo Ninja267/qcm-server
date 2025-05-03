@@ -6,4 +6,10 @@ if (!isset($_SESSION['user_id']) || $_SESSION['statut'] !== 'eleve') {
 }
 ?>
 <h1>Tableau de bord Élève</h1>
-<p>Liste des QCM disponibles prochainement…</p>
+<p style="text-align:right">
+    <a href="logout.php">Déconnexion</a>
+</p>
+<ul>
+    <li><a href="index.php?page=eleve/qcm_list">Examens disponibles</a></li>
+    <li><a href="index.php?page=eleve/qcm_result">Mes résultats</a></li>
+</ul>

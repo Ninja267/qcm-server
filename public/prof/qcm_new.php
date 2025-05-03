@@ -15,8 +15,12 @@ if (!isset($_SESSION['user_id']) || $_SESSION['statut'] !== 'prof') {
 $mode = 'new';
 $id   = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 if ($id) {
-    $stmt = $pdo->prepare('SELECT * FROM qcms WHERE id = :i');
-    $stmt->execute(['i' => $id]);
+    $stmt = $pdo->prepare(
+        'SELECT * FROM qcms
+          WHERE id = :i
+            AND auteur_id = :p'
+    );
+    $stmt->execute(['i' => $id, 'p' => $_SESSION['user_id']]);
     if ($src = $stmt->fetch(PDO::FETCH_ASSOC)) {
         $mode = (($_GET['action'] ?? '') === 'dup') ? 'dup' : 'edit';
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {         // pré-remplir
@@ -26,7 +30,7 @@ if ($id) {
 
             $ids = $pdo->prepare(
                 'SELECT question_id FROM qcm_questions
-                 WHERE qcm_id = :q ORDER BY ordre'
+                WHERE qcm_id = :q ORDER BY ordre'
             );
             $ids->execute(['q' => $id]);
             $_POST['ids'] = array_column($ids->fetchAll(), 'question_id');
@@ -40,36 +44,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $date  = $_POST['date'] ?? '';
     $duree = (int)($_POST['duree'] ?? 0);
     $ids   = json_decode($_POST['ids'] ?? '[]', true);
+    $tent = (int)($_POST['tent'] ?? 1);
 
     if ($titre === '' || !$date || $duree <= 0 || !is_array($ids) || !count($ids)) {
         $err = 'Nom, date, durée et au moins 1 question sont requis.';
     } else {
         if ($mode === 'edit') {
             $pdo->prepare(
-                'UPDATE qcms SET titre=:t,date_examen=:d,duree_min=:m WHERE id=:i'
+                'UPDATE qcms
+                   SET titre=:t,date_examen=:d,duree_min=:m,tentative_max=:x
+                 WHERE id=:i'
             )
-                ->execute(['t' => $titre, 'd' => $date, 'm' => $duree, 'i' => $id]);
-
-            $pdo->prepare('DELETE FROM qcm_questions WHERE qcm_id=:i')
-                ->execute(['i' => $id]);
+                ->execute(['t' => $titre, 'd' => $date, 'm' => $duree, 'x' => $tent, 'i' => $id]);
             $qcmId = $id;
-        } else {                    // new ou dup
+        } else {
             $pdo->prepare(
-                'INSERT INTO qcms(titre,date_examen,duree_min,auteur_id)
-               VALUES(:t,:d,:m,:a)'
+                'INSERT INTO qcms(titre,date_examen,duree_min,tentative_max,auteur_id)
+                VALUES(:t,:d,:m,:x,:a)'
             )
-                ->execute([
-                    't' => $titre,
-                    'd' => $date,
-                    'm' => $duree,
-                    'a' => $_SESSION['user_id']
-                ]);
-            $qcmId = $pdo->lastInsertId();
+                ->execute(['t' => $titre, 'd' => $date, 'm' => $duree, 'x' => $tent, 'a' => $_SESSION['user_id']]);
+            $qcmId = $pdo->lastInsertId();  
         }
         /* ré-insérer les questions */
         $ins = $pdo->prepare(
             'INSERT INTO qcm_questions(qcm_id,question_id,ordre)
-           VALUES(:q,:id,:o)'
+            VALUES(:q,:id,:o)'
         );
         $o = 1;
         foreach ($ids as $qid) $ins->execute(['q' => $qcmId, 'id' => $qid, 'o' => $o++]);
@@ -153,6 +152,11 @@ $qs = $pdo->query(
             </label><br><br>
             <label>Durée (minutes)
                 <input type="number" name="duree" min="1" value="<?= htmlspecialchars($_POST['duree'] ?? '') ?>" required>
+            </label><br><br>
+            <label>Tentatives autorisées
+                <input type="number" name="tent" min="1" max="10"
+                    value="<?= htmlspecialchars($_POST['tent'] ?? ($src['tentative_max'] ?? 1)) ?>"
+                    required>
             </label>
         </fieldset>
 

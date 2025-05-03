@@ -19,10 +19,12 @@ $src  = null;
 
 // récupérer une question par son id
 if ($id > 0) {
-  // y a-t-il une question avec cet id ?
-  $st  = $pdo->prepare('SELECT * FROM questions WHERE id = :i');
-  // si oui, la récupérer en exécutant la requête
-  $st->execute(['i' => $id]);
+  $st = $pdo->prepare(
+    'SELECT * FROM questions
+      WHERE id = :i
+        AND auteur_id = :p'
+  );
+  $st->execute(['i' => $id, 'p' => $_SESSION['user_id']]);
   // si oui, la stocker 
   $src = $st->fetch();
 

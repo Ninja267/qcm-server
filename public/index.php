@@ -14,14 +14,21 @@ $allowed = [
     'prof/qcm_list',
     'prof/qcm_delete',
     'prof/qcm_toggle',
-    'prof/qcm_results', 
+    'prof/qcm_results',
+    'prof/qcm_save', 
     'prof/question_new', // création 
     'prof/question_list',     // tableau
     'prof/question_delete',   // suppression
     'prof/theme_list',        //  tableau des thèmes
     'prof/theme_new',         //  créer / modifier / dupliquer
-    'prof/theme_delete',      //  supprimer un thème
-    'eleve/dashboard', 'eleve/qcm_start', 'eleve/qcm_result'
+    'prof/theme_delete',
+    'eleve/dashboard',
+    'eleve/qcm_list',
+    'eleve/qcm_view',
+    'eleve/qcm_start',
+    'eleve/qcm_pass',
+    'eleve/qcm_submit', 
+    'eleve/qcm_result',
 ];
 if (!in_array($page, $allowed, true)) {
     http_response_code(404);
