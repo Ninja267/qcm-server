@@ -15,7 +15,8 @@ $allowed = [
     'prof/qcm_delete',
     'prof/qcm_toggle',
     'prof/qcm_results',
-    'prof/qcm_save', 
+    'prof/qcm_save',
+    'prof/qcm_copy', 
     'prof/question_new', // création 
     'prof/question_list',     // tableau
     'prof/question_delete',   // suppression

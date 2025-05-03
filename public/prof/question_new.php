@@ -54,6 +54,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $texte    = trim($_POST['texte_question'] ?? '');
   $jsonStr  = $_POST['reponses_json'] ?? '[]';
   $reps     = json_decode($jsonStr, true);
+  $data = [
+    't'  => $theme_id,
+    's'  => $sub_id ?: null,
+    'm'  => empty($_POST['is_multiple']) ? 0 : 1,
+    'q'  => $texte,
+    'r'  => json_encode($reps, JSON_UNESCAPED_UNICODE)
+  ];
 
   // vérifier les réponses
   $good = array_reduce($reps ?: [], fn($c, $r) => $c + (!empty($r['correct']) ? 1 : 0), 0);
@@ -63,32 +70,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if (!$theme_id || $texte === '' || !is_array($reps) || count($reps) < 2 || $good === 0) {
     $error = '❌ Veuillez choisir un thème, écrire l’énoncé, proposer au moins 2 choix et cocher une bonne réponse.';
   } else {
-    if ($mode === 'edit') {                    // mise à jour
+    if ($mode === 'edit') {
+      $data['i'] = $id;
       $pdo->prepare(
         'UPDATE questions
-                   SET theme_id = :t,
-                       subtheme_id = :s,
-                       texte_question = :q,
-                       reponses = :r
-                 WHERE id = :i'
-      )->execute([
-        't' => $theme_id,
-        's' => $sub_id ?: null,
-        'q' => $texte,
-        'r' => json_encode($reps, JSON_UNESCAPED_UNICODE),
-        'i' => $id
-      ]);
-    } else {                                   // insert (new ou dup)
+                SET theme_id=:t, subtheme_id=:s, is_multiple=:m,
+                    texte_question=:q, reponses=:r
+              WHERE id=:i'
+      )->execute($data);
+    } else {
+      $data['a'] = $_SESSION['user_id'];
       $pdo->prepare(
-        'INSERT INTO questions (theme_id, subtheme_id, auteur_id, texte_question, reponses)
-                 VALUES (:t, :s, :a, :q, :r)'
-      )->execute([
-        't' => $theme_id,
-        's' => $sub_id ?: null,
-        'a' => $_SESSION['user_id'],
-        'q' => $texte,
-        'r' => json_encode($reps, JSON_UNESCAPED_UNICODE)
-      ]);
+        'INSERT INTO questions(theme_id,subtheme_id,auteur_id,is_multiple,texte_question,reponses)
+                  VALUES(:t,:s,:a,:m,:q,:r)'
+      )->execute($data);
     }
     header('Location: index.php?page=prof/question_list');
     exit;
@@ -158,6 +153,14 @@ $themes = $pdo->query('SELECT id, nom FROM themes ORDER BY nom')->fetchAll();
       <legend>Choix</legend>
     </fieldset>
     <button type="button" onclick="addChoice()">+ Choix</button>
+    <br><br>
+
+    <!-- type de question -->
+    <label>
+      <input type="checkbox" name="is_multiple"
+        <?= !empty($_POST['is_multiple']) ? 'checked' : '' ?>>
+      Plusieurs réponses possibles
+    </label>
     <br><br>
 
     <input type="hidden" name="reponses_json" id="reponses_json">

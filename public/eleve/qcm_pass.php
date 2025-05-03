@@ -12,6 +12,13 @@ $attempt = $pdo->prepare(
 $attempt->execute(['i' => $idAtt, 'e' => $idEleve]);
 $att = $attempt->fetch();
 if (!$att) die('Tentative inconnue');
+// 0‑bis : si la tentative est déjà terminée ➜ redirige vers le résultat
+if ($att['finished']) {
+    header('Location:index.php?page=eleve/qcm_result&id=' . $idAtt);
+    exit;
+}
+
+/*  ↳ le reste du fichier est inchangé */
 
 $deadline = strtotime($att['start_time'] . ' +' . $att['duree_min'] . ' minutes');
 $remain   = $deadline - time();
@@ -22,9 +29,9 @@ if ($remain <= 0) {
 
 /* questions + réponses déjà cochées */
 $rows = $pdo->prepare(
-    'SELECT qq.question_id, qu.texte_question, qu.reponses,
-         (SELECT selected FROM qcm_answers
-           WHERE attempt_id=:a AND question_id=qq.question_id) AS chosen
+    'SELECT qq.question_id, qu.texte_question, qu.reponses, qu.is_multiple,
+       (SELECT selected FROM qcm_answers
+         WHERE attempt_id=:a AND question_id=qq.question_id) AS chosen
     FROM qcm_questions qq
     JOIN questions qu ON qu.id=qq.question_id
    WHERE qq.qcm_id = :q
@@ -34,6 +41,9 @@ $rows->execute(['a' => $idAtt, 'q' => $att['qcm_id']]);
 ?>
 <script>
     let remain = <?= $remain ?>;
+
+    // verouillage tant que l’élève n’a pas cliqué « Soumettre »
+    window.onbeforeunload = () => '';
 
     function tick() {
         if (--remain <= 0) location = 'index.php?page=eleve/qcm_submit&id=<?= $idAtt ?>';
@@ -50,9 +60,16 @@ $rows->execute(['a' => $idAtt, 'q' => $att['qcm_id']]);
         <p><strong><?= htmlspecialchars($r['texte_question']) ?></strong></p>
         <?php foreach ($choices as $c): ?>
             <label>
-                <input type="radio" name="q<?= $r['question_id'] ?>"
+                <input type="<?= $r['is_multiple'] ? 'checkbox' : 'radio' ?>"
+                    name="q<?= $r['question_id'] ?><?= $r['is_multiple'] ? '[]' : '' ?>"
                     value="<?= $c['label'] ?>"
-                    <?= $r['chosen'] === $c['label'] ? 'checked' : '' ?>>
+                    <?php
+                    // $r['chosen'] contient éventuellement JSON pour multiple
+                    $picked = $r['is_multiple']
+                        ? in_array($c['label'], json_decode($r['chosen'] ?: '[]', true))
+                        : ($r['chosen'] === $c['label']);
+                    echo $picked ? 'checked' : '';
+                    ?>>
                 <?= $c['label'] ?>) <?= htmlspecialchars($c['texte']) ?>
             </label><br>
         <?php endforeach; ?>
@@ -74,7 +91,8 @@ $rows->execute(['a' => $idAtt, 'q' => $att['qcm_id']]);
                 return false;
             }
             /* lock back navigation */
-            window.onbeforeunload = () => '';
+            // on enlève le verrou pour que la navigation se fasse sans 2ᵉ pop‑up
+            window.onbeforeunload = null;
         });
     </script>
 </form>

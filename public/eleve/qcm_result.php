@@ -1,9 +1,7 @@
 <?php
 
 /*******************************************************
- *  qcm_result.php
- *  – sans paramètre  : liste de mes tentatives terminées
- *  – avec  paramètre : détail d’une copie + navigation
+ *  qcm_result.php — historique ou détail d’une copie
  ******************************************************/
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once __DIR__ . '/../../config/db.php';
@@ -11,9 +9,7 @@ require_once __DIR__ . '/../../config/db.php';
 $idEleve = $_SESSION['user_id'] ?? 0;
 $attId   = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
-/* -------------------------------------------------- */
-/* 0.  Historique si aucun id                         */
-/* -------------------------------------------------- */
+/* ------- 0. Historique ------- */
 if (!$attId) {
     $rows = $pdo->prepare(
         'SELECT a.id, q.titre, a.good, a.total,
@@ -71,22 +67,20 @@ if (!$attId) {
     </body>
 
     </html>
-<?php
-    exit;
+<?php exit;
 }
 
-/* -------------------------------------------------- */
-/* 1.  Chargement de la tentative demandée            */
-/* -------------------------------------------------- */
-$sql = 'SELECT a.*, q.titre
-          FROM qcm_attempts a
-          JOIN qcms q ON q.id = a.qcm_id
-         WHERE a.id = :i AND a.eleve_id = :e';
-$sth = $pdo->prepare($sql);
-$sth->execute(['i' => $attId, 'e' => $idEleve]);
-$att = $sth->fetch(PDO::FETCH_ASSOC) or die('Introuvable');
+/* ------- 1. Détail d’une tentative ------- */
+$att = $pdo->prepare(
+    'SELECT a.*, q.titre
+       FROM qcm_attempts a
+       JOIN qcms q ON q.id = a.qcm_id
+      WHERE a.id = :i AND a.eleve_id = :e'
+);
+$att->execute(['i' => $attId, 'e' => $idEleve]);
+$att = $att->fetch(PDO::FETCH_ASSOC) or die('Introuvable');
 
-/* 2.  Liste de toutes les copies de ce QCM pour nav  */
+/* autres copies de ce QCM pour navigation */
 $all = $pdo->prepare(
     'SELECT id, good, total, start_time
        FROM qcm_attempts
@@ -95,7 +89,7 @@ $all = $pdo->prepare(
 );
 $all->execute(['q' => $att['qcm_id'], 'e' => $idEleve]);
 
-/* 3.  Réponses de cette tentative                   */
+/* réponses */
 $qRows = $pdo->prepare(
     'SELECT qu.texte_question, qu.reponses, ans.selected
        FROM qcm_answers ans
@@ -144,16 +138,13 @@ $qRows->execute(['a' => $attId]);
             <th>Démarré</th>
             <th></th>
         </tr>
-        <?php foreach ($all as $row): ?>
-            <tr<?= $row['id'] == $attId ? ' style="background:#eef"' : '' ?>>
-                <td><?= $row['id'] ?></td>
-                <td><?= $row['good'] . ' / ' . $row['total'] ?></td>
-                <td><?= $row['start_time'] ?></td>
-                <td>
-                    <?php if ($row['id'] != $attId): ?>
-                        <a href="index.php?page=eleve/qcm_result&id=<?= $row['id'] ?>">voir</a>
-                        <?php else: ?>← cette copie<?php endif; ?>
-                </td>
+        <?php foreach ($all as $r): ?>
+            <tr<?= $r['id'] === $attId ? ' style="background:#eef"' : '' ?>>
+                <td><?= $r['id'] ?></td>
+                <td><?= $r['good'] . ' / ' . $r['total'] ?></td>
+                <td><?= $r['start_time'] ?></td>
+                <td><?= $r['id'] === $attId ? '← cette copie' :
+                        '<a href="index.php?page=eleve/qcm_result&id=' . $r['id'] . '">voir</a>' ?></td>
                 </tr>
             <?php endforeach; ?>
     </table>
@@ -161,19 +152,46 @@ $qRows->execute(['a' => $attId]);
     <h3>Copie #<?= $attId ?> — note : <?= $att['good'] . ' / ' . $att['total'] ?></h3>
 
     <?php foreach ($qRows as $row):
-        $choices = json_decode($row['reponses'], true); ?>
+
+        $defs        = json_decode($row['reponses'], true);               // définitions
+        $picked      = json_decode($row['selected'], true);
+        $picked      = is_array($picked) ? $picked : ($picked ? [$picked] : []);
+
+        /* ensembles triés pour comparaison */
+        $goodLabels  = array_column(array_filter($defs, fn($c) => !empty($c['correct'])), 'label');
+        sort($goodLabels);
+        $pickedUniq  = array_values(array_unique($picked));
+        sort($pickedUniq);
+
+        $ok          = ($goodLabels === $pickedUniq);                     // ✓ ou ✗
+    ?>
         <p><strong><?= htmlspecialchars($row['texte_question']) ?></strong></p>
-        <ul>
-            <?php foreach ($choices as $c):
-                $good = !empty($c['correct']);
-                $picked = $row['selected'] === $c['label']; ?>
-                <li class="<?= $good ? 'ok' : ($picked ? 'ko' : '') ?>">
-                    <?= $c['label'] ?>) <?= htmlspecialchars($c['texte']) ?>
-                    <?php if ($good)  echo ' ✅';
-                    elseif ($picked) echo ' ❌'; ?>
-                </li>
-            <?php endforeach; ?>
-        </ul>
+
+        <table border="1" cellpadding="4" cellspacing="0">
+            <tr>
+                <th>Réponse correcte</th>
+                <th>Votre réponse</th>
+                <th>✓ / ✗</th>
+            </tr>
+            <tr>
+                <td>
+                    <?php foreach ($defs as $c)
+                        if (!empty($c['correct']))
+                            echo $c['label'] . ') ' . htmlspecialchars($c['texte']) . '<br>'; ?>
+                </td>
+                <td>
+                    <?php
+                    if (!$picked) {
+                        echo '—';
+                    } else
+                        foreach ($defs as $c)
+                            if (in_array($c['label'], $picked))
+                                echo $c['label'] . ') ' . htmlspecialchars($c['texte']) . '<br>';
+                    ?>
+                </td>
+                <td style="text-align:center;font-size:24px"><?= $ok ? '✅' : '❌' ?></td>
+            </tr>
+        </table>
         <hr>
     <?php endforeach; ?>
 
